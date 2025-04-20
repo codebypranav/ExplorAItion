@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/codebypranav/exploraition/internal/embeddings"
+	seed "github.com/codebypranav/exploraition/internal/seed"
 	pc "github.com/codebypranav/exploraition/pinecone"
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
@@ -25,6 +26,11 @@ func main() {
 	idxConn, err := pc.GetIndexConnection(ctx)
 	if err != nil {
 		log.Fatalf("failed to connect to Pinecone index: %v", err)
+	}
+	if os.Getenv("SEED_INDEX") == "true" {
+		if err := seed.SeedIndex(ctx, idxConn); err != nil {
+			log.Fatalf("seed failed: %v", err)
+		}
 	}
 	openaiClient := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 	app := fiber.New()

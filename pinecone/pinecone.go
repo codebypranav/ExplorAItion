@@ -19,12 +19,10 @@ func GetIndexConnection(ctx context.Context) (*pinecone.IndexConnection, error) 
 	if err != nil {
 		return nil, err
 	}
-
 	idxDesc, err := client.DescribeIndex(ctx, os.Getenv("PINECONE_INDEX_NAME"))
 	if err != nil {
 		return nil, err
 	}
-
 	connParams := pinecone.NewIndexConnParams{
 		Host:      idxDesc.Host,
 		Namespace: "",

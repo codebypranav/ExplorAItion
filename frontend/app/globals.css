@@ -1,0 +1,4 @@
+html,body{height:100%;}
+*{box-sizing:border-box}
+a{color: #0066cc}
+@import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');

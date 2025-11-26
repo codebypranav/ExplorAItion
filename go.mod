@@ -7,6 +7,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/pinecone-io/go-pinecone/v3 v3.1.0
 	github.com/sashabaranov/go-openai v1.38.2
+	google.golang.org/protobuf v1.36.6
 )
 
 require (
@@ -31,6 +32,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20250414145226-207652e42e2e // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250414145226-207652e42e2e // indirect
 	google.golang.org/grpc v1.71.1 // indirect
-	google.golang.org/protobuf v1.36.6 // indirect
+    
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

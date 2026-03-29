@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 
 	"sort"
 
@@ -11,6 +12,7 @@ import (
 	gp "github.com/codebypranav/exploraition/internal/googleplaces"
 	ingest "github.com/codebypranav/exploraition/internal/ingest"
 	itin "github.com/codebypranav/exploraition/internal/itinerary"
+	"github.com/codebypranav/exploraition/internal/llm"
 	seed "github.com/codebypranav/exploraition/internal/seed"
 	wthr "github.com/codebypranav/exploraition/internal/weather"
 	pc "github.com/codebypranav/exploraition/pinecone"
@@ -64,10 +66,32 @@ func main() {
 		if err := c.BodyParser(&body); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid payload"})
 		}
-		if body.TopK == 0 {
+		body.Query = strings.TrimSpace(body.Query)
+		if body.Query == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "query is required"})
+		}
+		if body.TopK <= 0 {
 			body.TopK = 10
 		}
-		emb, err := embeddings.GenerateEmbedding(ctx, openaiClient, body.Query)
+		if body.TopK > 50 {
+			body.TopK = 50
+		}
+
+		// If no explicit filters are provided, try to parse them from the query using LLM
+		searchQuery := body.Query
+		filters := body.Filters
+		if len(filters) == 0 {
+			parsed, err := llm.ParseNaturalLanguageQuery(ctx, openaiClient, body.Query)
+			if err == nil {
+				searchQuery = parsed.SearchQuery
+				filters = parsed.Filters
+				log.Printf("Parsed query: '%s' -> '%s' + filters: %v", body.Query, searchQuery, filters)
+			} else {
+				log.Printf("LLM parsing failed, using raw query: %v", err)
+			}
+		}
+
+		emb, err := embeddings.GenerateEmbedding(ctx, openaiClient, searchQuery)
 		if err != nil {
 			log.Printf("embedding error: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate embedding"})
@@ -77,8 +101,8 @@ func main() {
 			TopK:            uint32(body.TopK),
 			IncludeMetadata: true,
 		}
-		if len(body.Filters) > 0 {
-			f, err := structpb.NewStruct(body.Filters)
+		if len(filters) > 0 {
+			f, err := structpb.NewStruct(filters)
 			if err == nil {
 				req.MetadataFilter = f
 			}
@@ -87,6 +111,9 @@ func main() {
 		if err != nil {
 			log.Printf("pinecone query error: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "pinecone query failed"})
+		}
+		if len(resp.Matches) == 0 {
+			return c.JSON([]fiber.Map{})
 		}
 		// Convert matches to a friendlier response
 		type WeatherInfo struct {
@@ -186,8 +213,19 @@ func main() {
 		if err := c.BodyParser(&body); err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "invalid payload"})
 		}
+		body.City = strings.TrimSpace(body.City)
+		body.Query = strings.TrimSpace(body.Query)
+		if body.City == "" {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "city is required"})
+		}
 		if body.Days <= 0 {
 			body.Days = 2
+		}
+		if body.Days > 14 {
+			body.Days = 14
+		}
+		if body.Query == "" {
+			body.Query = "top attractions in " + body.City
 		}
 		// get city coords
 		lat, lon, err := ingest.GetCityCoords(ctx, body.City)
@@ -203,6 +241,9 @@ func main() {
 		res, err := idxConn.QueryByVectorValues(ctx, req)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "pinecone query failed"})
+		}
+		if len(res.Matches) == 0 {
+			return c.JSON(make([][]itin.Place, body.Days))
 		}
 		itinerary, err := itin.GenerateItinerary(ctx, idxConn, lat, lon, res.Matches, body.Days)
 		if err != nil {

@@ -1,4 +1,83 @@
-html,body{height:100%;}
-*{box-sizing:border-box}
-a{color: #0066cc}
 @import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+
+:root {
+  --foreground-rgb: 74, 55, 40; /* Dark Wood */
+  --background-start-rgb: 245, 245, 220; /* Warm Cream */
+  --background-end-rgb: 230, 220, 200;
+  --primary-green: #2E4600; /* Forest Green */
+  --accent-wood: #8D6E63; /* Soft Brown */
+  --warm-light: #FFF8E1;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+  font-family: 'Georgia', serif; /* Classic, warm feel */
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+h1, h2, h3 {
+  font-family: 'Courier New', Courier, monospace; /* Typewriter/Menu style */
+  color: var(--primary-green);
+}
+
+button {
+  background-color: var(--primary-green);
+  color: var(--warm-light);
+  border: none;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-family: 'Courier New', Courier, monospace;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+button:hover {
+  background-color: #1a2900;
+}
+
+input {
+  background-color: rgba(255, 255, 255, 0.8);
+  border: 2px solid var(--accent-wood);
+  border-radius: 4px;
+  padding: 12px;
+  font-family: 'Georgia', serif;
+  color: rgb(var(--foreground-rgb));
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--primary-green);
+}
+
+a {
+  color: var(--primary-green);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--primary-green);
+}
+
+a:hover {
+  border-bottom: 1px solid var(--primary-green);
+}
+
+/* Mountain vibe background element */
+.mountain-bg {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 30vh;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='%232E4600' fill-opacity='0.1' d='M0,224L48,213.3C96,203,192,181,288,181.3C384,181,480,203,576,224C672,245,768,267,864,261.3C960,256,1056,224,1152,197.3C1248,171,1344,149,1392,138.7L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: bottom;
+  background-size: cover;
+  z-index: -1;
+  pointer-events: none;
+}

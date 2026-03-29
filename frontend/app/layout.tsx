@@ -8,7 +8,10 @@ export const metadata = {
 export default function RootLayout({ children }){
   return (
     <html>
-      <body style={{ fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto', margin: 0 }}>{children}</body>
+      <body>
+        <div className="mountain-bg"></div>
+        {children}
+      </body>
     </html>
   )
 }

@@ -2,6 +2,7 @@ package itinerary
 
 import (
 	"context"
+	"errors"
 	"math"
 	"sort"
 
@@ -9,11 +10,15 @@ import (
 )
 
 type Place struct {
-	Name      string
-	Latitude  float64
-	Longitude float64
-	Score     float32
-	Xid       string
+	Name        string  `json:"name"`
+	Latitude    float64 `json:"latitude"`
+	Longitude   float64 `json:"longitude"`
+	Score       float32 `json:"score"`
+	Xid         string  `json:"xid"`
+	ImageURL    string  `json:"image_url"`
+	Description string  `json:"description"`
+	Country     string  `json:"country"`
+	Rating      float64 `json:"rating"`
 }
 
 // Haversine distance
@@ -62,6 +67,13 @@ func routeOrder(places []Place, startLat, startLon float64) []Place {
 
 // GenerateItinerary will create a basic day-by-day list of POIs from Pinecone matches
 func GenerateItinerary(ctx context.Context, idxConn *pineconeio.IndexConnection, startLat, startLon float64, matches []*pineconeio.ScoredVector, days int) ([][]Place, error) {
+	if days <= 0 {
+		return nil, errors.New("days must be greater than 0")
+	}
+	if len(matches) == 0 {
+		return make([][]Place, days), nil
+	}
+
 	// Convert matches to places
 	places := []Place{}
 	for _, m := range matches {
@@ -85,7 +97,33 @@ func GenerateItinerary(ctx context.Context, idxConn *pineconeio.IndexConnection,
 		if v, ok := mm["xid"].(string); ok {
 			xid = v
 		}
-		places = append(places, Place{Name: name, Latitude: lat, Longitude: lon, Score: m.Score, Xid: xid})
+		image := ""
+		if v, ok := mm["image"].(string); ok {
+			image = v
+		}
+		desc := ""
+		if v, ok := mm["description"].(string); ok {
+			desc = v
+		}
+		country := ""
+		if v, ok := mm["country"].(string); ok {
+			country = v
+		}
+		rating := 0.0
+		if v, ok := mm["rate"].(float64); ok {
+			rating = v
+		}
+		places = append(places, Place{
+			Name:        name,
+			Latitude:    lat,
+			Longitude:   lon,
+			Score:       m.Score,
+			Xid:         xid,
+			ImageURL:    image,
+			Description: desc,
+			Country:     country,
+			Rating:      rating,
+		})
 	}
 	// Sort by score descending
 	sort.SliceStable(places, func(i, j int) bool {
@@ -97,13 +135,20 @@ func GenerateItinerary(ctx context.Context, idxConn *pineconeio.IndexConnection,
 		count = len(places)
 	}
 	places = places[:count]
+	if len(places) == 0 {
+		return make([][]Place, days), nil
+	}
 	// Order them by route coloring
 	ordered := routeOrder(places, startLat, startLon)
 	// Split into days
 	itinerary := make([][]Place, days)
-	for i := range ordered {
-		day := i % days
-		itinerary[day] = append(itinerary[day], ordered[i])
+	placesPerDay := (len(ordered) + days - 1) / days
+	for i, place := range ordered {
+		day := i / placesPerDay
+		if day >= days {
+			day = days - 1
+		}
+		itinerary[day] = append(itinerary[day], place)
 	}
 	return itinerary, nil
 }

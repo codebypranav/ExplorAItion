@@ -26,6 +26,7 @@ HTTP endpoints:
 
 Frontend (Next.js):
 - `frontend/` contains a minimal Next.js app with a /search and /itinerary page.
+- The itinerary page now includes an interactive map and detailed place information.
 - Run the frontend:
 ```
 cd frontend

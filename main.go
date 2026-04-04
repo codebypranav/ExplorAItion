@@ -12,14 +12,12 @@ import (
 	gp "github.com/codebypranav/exploraition/internal/googleplaces"
 	ingest "github.com/codebypranav/exploraition/internal/ingest"
 	itin "github.com/codebypranav/exploraition/internal/itinerary"
-	"github.com/codebypranav/exploraition/internal/llm"
 	seed "github.com/codebypranav/exploraition/internal/seed"
 	wthr "github.com/codebypranav/exploraition/internal/weather"
 	pc "github.com/codebypranav/exploraition/pinecone"
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
 	pineconeio "github.com/pinecone-io/go-pinecone/v3/pinecone"
-	openai "github.com/sashabaranov/go-openai"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -36,9 +34,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to Pinecone index: %v", err)
 	}
-	openaiClient := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 	if os.Getenv("SEED_INDEX") == "true" {
-		if err := seed.SeedIndex(ctx, idxConn, openaiClient); err != nil {
+		if err := seed.SeedIndex(ctx, idxConn); err != nil {
 			log.Fatalf("seed failed: %v", err)
 		}
 	}
@@ -77,21 +74,10 @@ func main() {
 			body.TopK = 50
 		}
 
-		// If no explicit filters are provided, try to parse them from the query using LLM
-		searchQuery := body.Query
+		// Use the raw query and explicit filters
 		filters := body.Filters
-		if len(filters) == 0 {
-			parsed, err := llm.ParseNaturalLanguageQuery(ctx, openaiClient, body.Query)
-			if err == nil {
-				searchQuery = parsed.SearchQuery
-				filters = parsed.Filters
-				log.Printf("Parsed query: '%s' -> '%s' + filters: %v", body.Query, searchQuery, filters)
-			} else {
-				log.Printf("LLM parsing failed, using raw query: %v", err)
-			}
-		}
 
-		emb, err := embeddings.GenerateEmbedding(ctx, openaiClient, searchQuery)
+		emb, err := embeddings.GenerateEmbedding(ctx, body.Query)
 		if err != nil {
 			log.Printf("embedding error: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate embedding"})
@@ -232,7 +218,7 @@ func main() {
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "failed to locate city"})
 		}
-		emb, err := embeddings.GenerateEmbedding(ctx, openaiClient, body.Query)
+		emb, err := embeddings.GenerateEmbedding(ctx, body.Query)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "embedding failed"})
 		}

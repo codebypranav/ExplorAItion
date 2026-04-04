@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	openaiClient "github.com/codebypranav/exploraition/internal/embeddings"
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/codebypranav/exploraition/internal/embeddings"
 )
 
 // TransformedPOI couples a POI with the text we will embed and metadata for Pinecone
@@ -31,12 +30,12 @@ func BuildTextForEmbedding(p POI) string {
 	return strings.Join(parts, " \n")
 }
 
-// TransformAll converts a slice of POI to TransformedPOI by generating embeddings
-func TransformAll(ctx context.Context, client *openai.Client, pois []POI) ([]TransformedPOI, error) {
+// TransformAll converts a slice of POI to TransformedPOI by generating sparse embeddings using Pinecone
+func TransformAll(ctx context.Context, pois []POI) ([]TransformedPOI, error) {
 	out := make([]TransformedPOI, 0, len(pois))
 	for _, p := range pois {
 		text := BuildTextForEmbedding(p)
-		vec, err := openaiClient.GenerateEmbedding(ctx, client, text)
+		vec, err := embeddings.GenerateEmbedding(ctx, text)
 		if err != nil {
 			return nil, err
 		}

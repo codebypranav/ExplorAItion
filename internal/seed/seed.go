@@ -9,13 +9,11 @@ import (
 
 	"github.com/codebypranav/exploraition/internal/ingest"
 	pineconeio "github.com/pinecone-io/go-pinecone/v3/pinecone"
-	openai "github.com/sashabaranov/go-openai"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// SeedIndex fetches places from OpenTripMap, generates embeddings, and upserts into Pinecone.
-// It accepts an openai client implicitly via env var OPENAI_API_KEY -- see GenerateEmbedding usage.
-func SeedIndex(ctx context.Context, idxConn *pineconeio.IndexConnection, openaiClient *openai.Client) error {
+// SeedIndex fetches places from OpenTripMap, generates sparse embeddings using Pinecone, and upserts into the index.
+func SeedIndex(ctx context.Context, idxConn *pineconeio.IndexConnection) error {
 	// List of cities to fetch data for -- extendable or configurable via env
 	var cities []string
 	if v := os.Getenv("SEED_CITIES"); v != "" {
@@ -38,7 +36,7 @@ func SeedIndex(ctx context.Context, idxConn *pineconeio.IndexConnection, openaiC
 			log.Printf("failed to fetch POIs for %s: %v", city, err)
 			continue
 		}
-		transformed, err := ingest.TransformAll(ctx, openaiClient, pois)
+		transformed, err := ingest.TransformAll(ctx, pois)
 		if err != nil {
 			log.Printf("transforming embeddings failed for %s: %v", city, err)
 			continue

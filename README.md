@@ -1,25 +1,69 @@
 # ExplorAItion
 
-ExplorAItion is a travel planning application that uses vector search and LLM-driven intelligence to generate personalized travel itineraries based on past trips, preferences, and destination context.
+ExplorAItion is an AI-powered travel planning application that turns a natural-language trip request into a personalized, day-by-day itinerary. The system combines destination data, vector similarity search, and LLM-based query parsing to recommend places that match a traveler’s preferences and then organize them into a route.
 
-## What it does
+## What the product does
 
-The app:
-- ingests Points of Interest (POIs) from OpenTripMap
-- converts them into embeddings with OpenAI
-- stores them in Pinecone for similarity search
-- parses natural-language trip requests into structured filters
-- builds a multi-day itinerary from relevant destinations and preferences
+A user can describe a trip in plain English such as:
 
-## Architecture
+- "3-day trip to Paris with art museums and good coffee"
+- "family-friendly places in Tokyo with scenic views"
+- "historic neighborhoods and food spots in Rome"
 
-- Backend: Go + Fiber
-- Frontend: Next.js app router
-- Vector store: Pinecone
-- Embeddings: OpenAI text-embedding-3-small
-- Data source: OpenTripMap
+The platform then:
 
-## Project structure
+1. interprets the request using an LLM
+2. embeds the user query and filters into a vector search flow
+3. retrieves the most relevant attractions from a POI database
+4. re-ranks or filters the results using metadata like country, rating, and tags
+5. assembles a multi-day itinerary that is geographically and logistically coherent
+
+## Technical architecture
+
+### Backend
+- Go
+- Fiber web framework
+- Pinecone vector database
+- OpenAI API for embeddings and natural-language parsing
+- OpenTripMap for point-of-interest source data
+
+The backend entry point is `main.go`, which initializes:
+
+- the Fiber app
+- the Pinecone index connection
+- the OpenAI client
+- the route handlers for recommendation and itinerary generation
+
+### Search and recommendation flow
+The app uses a semantic retrieval pipeline:
+
+- user input is parsed into a structured query with `internal/llm`
+- the query is turned into embeddings
+- the embeddings are sent to Pinecone for similarity search
+- result metadata is used for filtering, ranking, and route selection
+
+This allows the app to go beyond text matching and search by conceptual similarity.
+
+### Itinerary generation
+The itinerary engine lives in `internal/itinerary/itinerary.go` and operates on the scored POI results returned from Pinecone. It groups places into daily chunks, keeps the route geographically reasonable, and produces a structured day-by-day plan.
+
+The logic follows a nearest-neighbor style approach: it uses the retrieved POIs, their coordinates, and sorted ranking signals to build a route that keeps nearby destinations together instead of producing a chaotic list.
+
+### Data ingestion pipeline
+The ingestion path is:
+
+- OpenTripMap fetches POI metadata
+- `internal/ingest` transforms and normalizes the data
+- embeddings are generated for text descriptions and metadata
+- data is upserted into Pinecone for semantic search
+
+The seed process is triggered by:
+
+```bash
+SEED_INDEX=true go run main.go
+```
+
+## Repository structure
 
 ```text
 main.go
@@ -36,28 +80,52 @@ frontend/
   components/
   lib/
 pinecone/
+scripts/
 ```
 
-## Prerequisites
+## Key technical components
 
-Before running the app, set up the following environment variables:
+### `main.go`
+This is the server entry point. It wires together the API, database connection, and the recommender/itinerary routes.
+
+### `internal/llm`
+This layer translates natural language requests into structured query parameters and Pinecone-friendly filters.
+
+### `internal/embeddings`
+This layer creates vector embeddings for the search index and incoming queries.
+
+### `internal/itinerary`
+This layer assembles POIs into day-by-day plans using the original match scores and geographic placement.
+
+### `frontend/`
+The frontend is a Next.js app with pages for:
+
+- search
+- itinerary generation
+- interactive map rendering
+
+## Environment variables
 
 ```bash
 export PINECONE_API_KEY="your-pinecone-key"
-export PINECONE_INDEX_NAME="your-index-name"
+export PINECONE_INDEX_NAME="destinations"
+export PINECONE_ENVIRONMENT="us-east-1-aws"
 export OPENAI_API_KEY="your-openai-key"
 export OPEN_TRIP_MAP_KEY="your-opentripmap-key"
+
 # optional
 export GOOGLE_PLACES_API_KEY="your-google-places-key"
 ```
 
-## Run the backend
+## Running the project
+
+### Backend
 
 ```bash
 go run main.go
 ```
 
-## Run the frontend
+### Frontend
 
 ```bash
 cd frontend
@@ -65,25 +133,18 @@ npm install
 npm run dev
 ```
 
-Then visit:
+Then open:
 
 ```text
 http://localhost:3000
 ```
 
-## Seed the Pinecone index
-
-To ingest POI data into Pinecone:
-
-```bash
-SEED_INDEX=true go run main.go
-```
-
 ## API endpoints
 
-### POST /recommend
+### `POST /recommend`
+Used to retrieve a curated list of relevant destinations.
 
-Body example:
+Example body:
 
 ```json
 {
@@ -95,9 +156,10 @@ Body example:
 }
 ```
 
-### POST /itinerary
+### `POST /itinerary`
+Generates a multi-day itinerary for a chosen city and travel style.
 
-Body example:
+Example body:
 
 ```json
 {
@@ -107,11 +169,20 @@ Body example:
 }
 ```
 
+## Why this is technically interesting
+
+ExplorAItion combines retrieval-based search with route optimization rather than relying on a single monolithic prompt. The architecture allows it to:
+
+- match user intent semantically
+- filter destinations based on metadata and preferences
+- scale beyond a simple keyword search
+- produce itineraries that are more travel-plausible than an unordered list of attractions
+
 ## Notes
 
-- The app uses a greedy nearest-neighbor style itinerary builder to plan day-by-day travel routes.
-- Metadata filters can be applied to vector queries for things like `country`, `kinds`, and `rate`.
-- The frontend includes search and itinerary pages plus an interactive map experience.
+- Pinecone metadata fields include values such as `xid`, `lat`, `lon`, `name`, `kinds`, `rate`, and `country`.
+- Query filters can use MongoDB-style operators such as `$gte`, `$eq`, and `$in`.
+- The app was designed primarily as a prototype for personalized travel assistance and AI-enhanced trip planning.
 
 ## License
 

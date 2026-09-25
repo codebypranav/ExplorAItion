@@ -169,7 +169,6 @@ Example body:
 }
 ```
 
-## Why this is technically interesting
 
 ExplorAItion combines retrieval-based search with route optimization rather than relying on a single monolithic prompt. The architecture allows it to:
 

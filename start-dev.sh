@@ -69,14 +69,10 @@ echo "Checking prerequisites..."
 check_port 8080 "Backend (Go)"
 check_port 3000 "Frontend (Next.js)"
 
-# Verify binaries exist
-if [ ! -f "./exploraition" ]; then
-    echo -e "${YELLOW}Building backend binary...${NC}"
-    go build -o exploraition main.go
-    echo -e "${GREEN}✓ Backend built${NC}"
-else
-    echo -e "${GREEN}✓ Backend binary found${NC}"
-fi
+# Always rebuild so pulled changes are picked up
+echo -e "${YELLOW}Building backend...${NC}"
+go build -o exploraition main.go
+echo -e "${GREEN}✓ Backend built${NC}"
 
 if [ ! -d "./frontend/node_modules" ]; then
     echo -e "${YELLOW}Installing frontend dependencies...${NC}"
@@ -102,8 +98,27 @@ BACKEND_PID=$!
 echo -e "${GREEN}  PID: $BACKEND_PID${NC}"
 echo ""
 
-# Wait a moment for backend to start
-sleep 2
+# The backend exits immediately if it cannot reach Pinecone (bad key/index name),
+# so confirm it is actually serving before starting the frontend.
+BACKEND_UP=0
+for _ in $(seq 1 15); do
+    if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+        break
+    fi
+    if curl -sf -o /dev/null http://localhost:8080/; then
+        BACKEND_UP=1
+        break
+    fi
+    sleep 1
+done
+if [ "$BACKEND_UP" -ne 1 ]; then
+    echo -e "${RED}✗ Backend failed to start. Last lines of backend.log:${NC}"
+    tail -n 15 backend.log
+    kill "$BACKEND_PID" 2>/dev/null || true
+    exit 1
+fi
+echo -e "${GREEN}  Backend is responding on :8080${NC}"
+echo ""
 
 # Start frontend
 echo -e "${BLUE}Frontend:${NC}"

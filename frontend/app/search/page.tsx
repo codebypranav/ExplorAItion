@@ -39,7 +39,7 @@ export default function SearchPage() {
     <div style={{ padding: '2rem', maxWidth: 1200, margin: '0 auto' }}>
       <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
         <h2 style={{ fontSize: '2.5rem', marginBottom: '1rem', color: '#2E4600' }}>Find Your Next Adventure</h2>
-        <p style={{ fontSize: '1.2rem', fontStyle: 'italic', color: '#5D4037' }}>Tell us what you're dreaming of...</p>
+        <p style={{ fontSize: '1.2rem', fontStyle: 'italic', color: '#5D4037' }}>Tell us what you&apos;re dreaming of...</p>
       </div>
       
       <form onSubmit={doSearch} style={{ maxWidth: 800, margin: '0 auto', background: '#fff', padding: '2rem', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', border: '1px solid #8D6E63' }}>

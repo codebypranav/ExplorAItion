@@ -10,8 +10,6 @@ const Popup = dynamic(() => import('react-leaflet').then(mod => mod.Popup), { ss
 
 export default function Map({ points = [], center = null, onMarkerClick = null }){
   // points: [{ latitude, longitude, name }]
-  if (!points || points.length === 0) return <div>No points to show</div>
-  const inferredCenter = center || [points[0].latitude, points[0].longitude]
   const mapRef = useRef<any>(null)
 
   useEffect(() => {
@@ -21,6 +19,9 @@ export default function Map({ points = [], center = null, onMarkerClick = null }
       m.setView(center, 13)
     }
   }, [center])
+
+  if (!points || points.length === 0) return <div>No points to show</div>
+  const inferredCenter = center || [points[0].latitude, points[0].longitude]
 
   const MapContainerAny: any = MapContainer
   return (

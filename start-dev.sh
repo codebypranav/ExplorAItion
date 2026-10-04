@@ -70,9 +70,9 @@ check_port 8080 "Backend (Go)"
 check_port 3000 "Frontend (Next.js)"
 
 # Verify binaries exist
-if [ ! -f "./exploraition_new" ]; then
+if [ ! -f "./exploraition" ]; then
     echo -e "${YELLOW}Building backend binary...${NC}"
-    go build -o exploraition_new main.go
+    go build -o exploraition main.go
     echo -e "${GREEN}✓ Backend built${NC}"
 else
     echo -e "${GREEN}✓ Backend binary found${NC}"
@@ -94,10 +94,10 @@ echo ""
 
 # Start backend
 echo -e "${BLUE}Backend:${NC}"
-echo "  Command: ./exploraition_new"
+echo "  Command: ./exploraition"
 echo "  Port: 8080"
 echo "  .env: Loaded"
-./exploraition_new > backend.log 2>&1 &
+./exploraition > backend.log 2>&1 &
 BACKEND_PID=$!
 echo -e "${GREEN}  PID: $BACKEND_PID${NC}"
 echo ""

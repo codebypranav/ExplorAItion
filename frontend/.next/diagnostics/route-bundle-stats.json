@@ -14,10 +14,10 @@
   },
   {
     "route": "/search",
-    "firstLoadUncompressedJsBytes": 462199,
+    "firstLoadUncompressedJsBytes": 462166,
     "firstLoadChunkPaths": [
       ".next/static/chunks/3fntmmi971322.js",
-      ".next/static/chunks/212arlwnyfj5b.js",
+      ".next/static/chunks/0qi4r1fz86dce.js",
       ".next/static/chunks/310vm2bl3xxpt.js",
       ".next/static/chunks/0eo1cde-rr3bs.js",
       ".next/static/chunks/1rj7ns8rte9vc.js",
@@ -27,10 +27,10 @@
   },
   {
     "route": "/itinerary",
-    "firstLoadUncompressedJsBytes": 461423,
+    "firstLoadUncompressedJsBytes": 461390,
     "firstLoadChunkPaths": [
       ".next/static/chunks/3fntmmi971322.js",
-      ".next/static/chunks/0kgbqey1z7ygp.js",
+      ".next/static/chunks/22n77vi0ng2_n.js",
       ".next/static/chunks/310vm2bl3xxpt.js",
       ".next/static/chunks/0eo1cde-rr3bs.js",
       ".next/static/chunks/1rj7ns8rte9vc.js",

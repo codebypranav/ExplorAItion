@@ -1,0 +1,34 @@
+{
+  "headers": {
+    "x-nextjs-stale-time": "300",
+    "x-nextjs-prerender": "1",
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/itinerary/layout,_N_T_/itinerary/page,_N_T_/itinerary"
+  },
+  "segmentPaths": [
+    "/_tree",
+    "/_full",
+    "/itinerary/__PAGE__"
+  ],
+  "prefetchHints": {
+    "hints": 64,
+    "slots": {
+      "children": {
+        "hints": 96,
+        "slots": {
+          "children": {
+            "hints": 160,
+            "slots": null
+          }
+        }
+      }
+    }
+  },
+  "routeCache": {
+    "key": "/route-cache/APP_PAGE/f4707606827a30e96e95ac92682658b831731f9f2b4be12b2d697aafa14e1576/$/itinerary",
+    "owner": {
+      "kind": "APP_PAGE",
+      "sourceRoute": "/itinerary/page"
+    },
+    "isFallback": false
+  }
+}

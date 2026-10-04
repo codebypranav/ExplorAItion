@@ -11,10 +11,13 @@ export default function SearchPage() {
   const [results, setResults] = useState([])
   const [mapCenter, setMapCenter] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [searched, setSearched] = useState(false)
 
   async function doSearch(e) {
     e.preventDefault()
     setLoading(true)
+    setError(null)
     // Send query as is, let backend parse it
     const body = { query, filters: {}, top_k: topk }
     try {
@@ -24,12 +27,14 @@ export default function SearchPage() {
       }
       const json = await res.json()
       setResults(Array.isArray(json) ? json : [])
+      setSearched(true)
       if (json.length>0 && json[0].latitude && json[0].longitude) {
         setMapCenter({ latitude: json[0].latitude, longitude: json[0].longitude })
       }
     } catch (err) {
       console.error(err)
       setResults([])
+      setError('Search failed. Check that the backend is running and its API keys are valid (see backend.log).')
     } finally {
       setLoading(false)
     }
@@ -61,6 +66,13 @@ export default function SearchPage() {
           </div>
         </div>
       </form>
+
+      {error && (
+        <p role="alert" style={{ marginTop: '2rem', textAlign: 'center', color: '#B71C1C' }}>{error}</p>
+      )}
+      {searched && !error && !loading && results.length === 0 && (
+        <p style={{ marginTop: '2rem', textAlign: 'center', color: '#5D4037' }}>No places found. Try different wording.</p>
+      )}
 
       <div style={{ marginTop: '3rem', display: 'flex', gap: 24, flexDirection: 'column-reverse' }}>
         {results && results.length>0 && (

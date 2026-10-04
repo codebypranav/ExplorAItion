@@ -48,9 +48,9 @@ func SeedIndex(ctx context.Context, idxConn *pineconeio.IndexConnection) error {
 				continue
 			}
 			v := &pineconeio.Vector{
-				Id:       t.Id,
-				Values:   &t.Vector,
-				Metadata: metaStruct,
+				Id:           t.Id,
+				SparseValues: &pineconeio.SparseValues{Indices: t.Vector.Indices, Values: t.Vector.Values},
+				Metadata:     metaStruct,
 			}
 			batchVectors = append(batchVectors, v)
 			// Upsert in batches of 100

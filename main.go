@@ -77,13 +77,13 @@ func main() {
 		// Use the raw query and explicit filters
 		filters := body.Filters
 
-		emb, err := embeddings.GenerateEmbedding(ctx, body.Query)
+		emb, err := embeddings.GenerateEmbedding(ctx, body.Query, embeddings.InputQuery)
 		if err != nil {
 			log.Printf("embedding error: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate embedding"})
 		}
 		req := &pineconeio.QueryByVectorValuesRequest{
-			Vector:          emb,
+			SparseValues:    &pineconeio.SparseValues{Indices: emb.Indices, Values: emb.Values},
 			TopK:            uint32(body.TopK),
 			IncludeMetadata: true,
 		}
@@ -218,12 +218,12 @@ func main() {
 		if err != nil {
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "failed to locate city"})
 		}
-		emb, err := embeddings.GenerateEmbedding(ctx, body.Query)
+		emb, err := embeddings.GenerateEmbedding(ctx, body.Query, embeddings.InputQuery)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "embedding failed"})
 		}
 		// query pinecone
-		req := &pineconeio.QueryByVectorValuesRequest{Vector: emb, TopK: uint32(body.Days * 8), IncludeMetadata: true}
+		req := &pineconeio.QueryByVectorValuesRequest{SparseValues: &pineconeio.SparseValues{Indices: emb.Indices, Values: emb.Values}, TopK: uint32(body.Days * 8), IncludeMetadata: true}
 		res, err := idxConn.QueryByVectorValues(ctx, req)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "pinecone query failed"})

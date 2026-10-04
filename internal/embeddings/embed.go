@@ -10,73 +10,80 @@ import (
 	"os"
 )
 
-// GenerateEmbedding generates a sparse embedding using Pinecone's serverless embedding service
-// Uses PINECONE_API_KEY from environment for authentication
-func GenerateEmbedding(ctx context.Context, input string) ([]float32, error) {
-	// Call Pinecone's embedding service via HTTP API
+// Input types for Pinecone's sparse model: documents are embedded as
+// "passage", user queries as "query".
+const (
+	InputPassage = "passage"
+	InputQuery   = "query"
+)
+
+const model = "pinecone-sparse-english-v0"
+
+// embedURL is a variable so tests can point it at a fake server.
+var embedURL = "https://api.pinecone.io/embed"
+
+// Sparse is a sparse embedding: Values[i] is the weight of token Indices[i].
+type Sparse struct {
+	Indices []uint32
+	Values  []float32
+}
+
+// GenerateEmbedding generates a sparse embedding with Pinecone's hosted inference API.
+// inputType must be InputPassage (when indexing) or InputQuery (when searching).
+// Uses PINECONE_API_KEY from the environment for authentication.
+func GenerateEmbedding(ctx context.Context, input, inputType string) (*Sparse, error) {
 	apiKey := os.Getenv("PINECONE_API_KEY")
 	if apiKey == "" {
 		return nil, fmt.Errorf("PINECONE_API_KEY not set")
 	}
 
-	// Pinecone embedding API endpoint
-	embeddingURL := "https://api.pinecone.io/embed"
-
-	// Prepare the request body
-	reqBody := map[string]interface{}{
-		"model": "pinecone-sparse-english-v0",
-		"inputs": []string{input},
-	}
-
-	bodyBytes, err := json.Marshal(reqBody)
+	bodyBytes, err := json.Marshal(map[string]interface{}{
+		"model":      model,
+		"parameters": map[string]string{"input_type": inputType, "truncate": "END"},
+		"inputs":     []map[string]string{{"text": input}},
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "POST", embeddingURL, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, embedURL, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Api-Key", apiKey)
+	req.Header.Set("X-Pinecone-API-Version", "2025-01")
 
-	// Execute request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call embedding API: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read response body
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
-
-	// Check for errors
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("embedding API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// Parse response
+	// Sparse models return sparse_indices/sparse_values, not "values".
 	var respData struct {
 		Data []struct {
-			Values []float32 `json:"values"`
+			SparseIndices []uint32  `json:"sparse_indices"`
+			SparseValues  []float32 `json:"sparse_values"`
 		} `json:"data"`
 	}
-
-	err = json.Unmarshal(respBody, &respData)
-	if err != nil {
+	if err := json.Unmarshal(respBody, &respData); err != nil {
 		return nil, fmt.Errorf("failed to parse embedding response: %w", err)
 	}
-
 	if len(respData.Data) == 0 {
-		return []float32{}, nil
+		return nil, fmt.Errorf("embedding API returned no data")
 	}
-
-	return respData.Data[0].Values, nil
+	d := respData.Data[0]
+	if len(d.SparseValues) == 0 || len(d.SparseValues) != len(d.SparseIndices) {
+		return nil, fmt.Errorf("embedding has no usable sparse values (%d indices, %d values)", len(d.SparseIndices), len(d.SparseValues))
+	}
+	return &Sparse{Indices: d.SparseIndices, Values: d.SparseValues}, nil
 }

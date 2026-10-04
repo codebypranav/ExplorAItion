@@ -11,7 +11,7 @@ import (
 // TransformedPOI couples a POI with the text we will embed and metadata for Pinecone
 type TransformedPOI struct {
 	Id       string
-	Vector   []float32
+	Vector   *embeddings.Sparse
 	Metadata map[string]interface{}
 }
 
@@ -35,7 +35,7 @@ func TransformAll(ctx context.Context, pois []POI) ([]TransformedPOI, error) {
 	out := make([]TransformedPOI, 0, len(pois))
 	for _, p := range pois {
 		text := BuildTextForEmbedding(p)
-		vec, err := embeddings.GenerateEmbedding(ctx, text)
+		vec, err := embeddings.GenerateEmbedding(ctx, text, embeddings.InputPassage)
 		if err != nil {
 			return nil, err
 		}

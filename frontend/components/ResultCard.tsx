@@ -1,30 +1,114 @@
+"use client"
+
 import React from 'react'
 
-export default function ResultCard({ place, onCenter }) {
+import { hasCoords } from '../lib/api'
+import { formatDistance } from '../lib/geo'
+import type { Place } from '../lib/types'
+import WeatherChip from './WeatherChip'
+
+type Props = {
+  place: Place
+  /** Rendered in a pin-style badge before the title (itinerary stop number). */
+  index?: number
+  /** Km from the previous stop, shown as a leg hint. */
+  legKm?: number
+  active?: boolean
+  onSelect?: (place: Place) => void
+}
+
+export default function ResultCard({
+  place,
+  index,
+  legKm,
+  active = false,
+  onSelect,
+}: Props) {
+  const mappable = hasCoords(place)
+  const country = place.country?.trim()
+
   return (
-    <div style={{ display: 'flex', gap: '16px', alignItems: 'start' }}>
-      {place.image_url ? (
-        <img 
-          src={place.image_url} 
-          style={{ width: 160, height: 120, objectFit: 'cover', borderRadius: '4px', border: '1px solid var(--accent-wood)' }} 
-          alt={place.name}
-        />
-      ) : (
-        <div style={{ width: 160, height: 120, background: 'rgba(141, 110, 99, 0.2)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-wood)' }}>
-          No Image
+    <li
+      className="place-card"
+      data-active={active || undefined}
+      onClick={() => onSelect?.(place)}
+      style={onSelect ? { cursor: 'pointer' } : undefined}
+    >
+      <div className="place-thumb">
+        {place.image_url ? (
+          // The backend returns arbitrary third-party URLs (OpenTripMap /
+          // Google Places), so a plain img avoids next/image host config.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={place.image_url}
+            alt={place.name ? `Photo of ${place.name}` : 'Place photo'}
+            loading="lazy"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none'
+            }}
+          />
+        ) : (
+          <span aria-hidden="true">🏛️</span>
+        )}
+      </div>
+
+      <div style={{ minWidth: 0 }}>
+        <div className="row" style={{ gap: '0.5rem', alignItems: 'center' }}>
+          {index !== undefined && (
+            <span className="stop-index" aria-hidden="true">
+              {index}
+            </span>
+          )}
+          <h3 className="place-title">{place.name || 'Unnamed place'}</h3>
         </div>
-      )}
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 700, fontSize: '1.2rem', color: 'var(--primary-green)', fontFamily: 'Courier New, monospace' }}>{place.name}</div>
-        <div style={{ margin: '4px 0', fontStyle: 'italic', color: '#555' }}>{place.country}</div>
-        <div style={{ opacity: 0.9, lineHeight: '1.4' }}>{place.description}</div>
-        <div style={{ marginTop: '8px', fontSize: '0.9rem', color: 'var(--accent-wood)' }}>
-           Score: {Number(place.score).toFixed(3)} {place.rating ? ` • Rating: ${place.rating}/5` : ''}
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <button onClick={() => onCenter && onCenter(place)} style={{ padding: '6px 12px', fontSize: '0.8rem' }}>Locate on Map</button>
+
+        {country && (
+          <div className="small muted" style={{ marginTop: 2 }}>
+            {country}
+            {legKm !== undefined ? ` · ${formatDistance(legKm)} from previous stop` : ''}
+          </div>
+        )}
+
+        {place.description && <p className="place-desc">{place.description}</p>}
+
+        <div className="place-meta">
+          {Number.isFinite(place.score) && (
+            <span className="chip chip-score" title="Pinecone similarity score blended with rating">
+              match {place.score.toFixed(3)}
+            </span>
+          )}
+          {place.rating ? (
+            <span className="chip chip-rating" title="Google Places rating">
+              ★ {place.rating.toFixed(1)}
+            </span>
+          ) : null}
+          {place.weather ? <WeatherChip weather={place.weather} /> : null}
+
+          {mappable && onSelect && (
+            <button
+              type="button"
+              className="btn btn-sm no-print"
+              onClick={(e) => {
+                e.stopPropagation()
+                onSelect(place)
+              }}
+            >
+              Show on map
+            </button>
+          )}
+          {mappable && (
+            <a
+              className="chip no-print"
+              href={`https://www.openstreetmap.org/?mlat=${place.latitude}&mlon=${place.longitude}#map=16/${place.latitude}/${place.longitude}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Open in OSM ↗
+            </a>
+          )}
         </div>
       </div>
-    </div>
+    </li>
   )
 }

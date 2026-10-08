@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
     "leaflet": "1.9.4",
@@ -17,9 +17,10 @@
     "swr": "2.4.1"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.22",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
-    "eslint": "10.1.0",
+    "eslint": "^9.39.5",
     "eslint-config-next": "16.2.1"
   }
 }

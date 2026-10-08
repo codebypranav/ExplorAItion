@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react'
+import React, { useState } from 'react'
 
 import { hasCoords } from '../lib/api'
 import { formatDistance } from '../lib/geo'
@@ -26,6 +26,8 @@ export default function ResultCard({
 }: Props) {
   const mappable = hasCoords(place)
   const country = place.country?.trim()
+  // Third-party photo hosts 404 often enough to need a fallback.
+  const [imageFailed, setImageFailed] = useState(false)
 
   return (
     <li
@@ -35,7 +37,7 @@ export default function ResultCard({
       style={onSelect ? { cursor: 'pointer' } : undefined}
     >
       <div className="place-thumb">
-        {place.image_url ? (
+        {place.image_url && !imageFailed ? (
           // The backend returns arbitrary third-party URLs (OpenTripMap /
           // Google Places), so a plain img avoids next/image host config.
           // eslint-disable-next-line @next/next/no-img-element
@@ -43,9 +45,7 @@ export default function ResultCard({
             src={place.image_url}
             alt={place.name ? `Photo of ${place.name}` : 'Place photo'}
             loading="lazy"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none'
-            }}
+            onError={() => setImageFailed(true)}
           />
         ) : (
           <span aria-hidden="true">🏛️</span>

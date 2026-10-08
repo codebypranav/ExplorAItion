@@ -1,6 +1,7 @@
 package googleplaces
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,68 +17,89 @@ type PlaceDetails struct {
 	ImageURL string  `json:"image_url,omitempty"`
 }
 
-func httpGet(ctx context.Context, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "ExplorAItion/1.0")
+const (
+	// Places API (New). The legacy maps.googleapis.com/maps/api/place endpoints
+	// cannot be enabled on projects created after the legacy shutdown, so this
+	// uses the current API.
+	searchNearbyURL = "https://places.googleapis.com/v1/places:searchNearby"
+	// Only the fields listed here are returned, and billing is per field mask
+	// tier — keep this list minimal.
+	fieldMask = "places.rating,places.photos"
+	// Metres around the POI coordinates to look in.
+	searchRadius = 50.0
+	photoMaxPx   = 400
+)
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
-	}
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return b, nil
-}
-
-// GetNearestPlaceDetails tries to find a place around the given coordinates using Google Places Nearby Search.
+// GetNearestPlaceDetails finds the place at the given coordinates and returns
+// its rating and a photo URL, using Google Places API (New) Nearby Search.
 func GetNearestPlaceDetails(ctx context.Context, lat, lon float64) (PlaceDetails, error) {
 	key := os.Getenv("GOOGLE_PLACES_API_KEY")
 	if key == "" {
 		return PlaceDetails{}, fmt.Errorf("GOOGLE_PLACES_API_KEY not set")
 	}
-	url := fmt.Sprintf("https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=%f,%f&radius=50&key=%s", lat, lon, key)
-	b, err := httpGet(ctx, url)
+
+	reqBody := map[string]interface{}{
+		"maxResultCount": 1,
+		"rankPreference": "DISTANCE",
+		"locationRestriction": map[string]interface{}{
+			"circle": map[string]interface{}{
+				"center": map[string]float64{"latitude": lat, "longitude": lon},
+				"radius": searchRadius,
+			},
+		},
+	}
+	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return PlaceDetails{}, err
 	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, searchNearbyURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return PlaceDetails{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Goog-Api-Key", key)
+	req.Header.Set("X-Goog-FieldMask", fieldMask)
+	req.Header.Set("User-Agent", "ExplorAItion/1.0")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return PlaceDetails{}, err
+	}
+	defer resp.Body.Close()
+
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return PlaceDetails{}, err
+	}
+	if resp.StatusCode >= 300 {
+		return PlaceDetails{}, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
+	}
+
 	var out struct {
-		Results []struct {
-			Rating interface{} `json:"rating"`
+		Places []struct {
+			Rating float64 `json:"rating"`
 			Photos []struct {
-				PhotoReference string `json:"photo_reference"`
+				// Resource name, e.g. "places/<id>/photos/<ref>".
+				Name string `json:"name"`
 			} `json:"photos"`
-		} `json:"results"`
+		} `json:"places"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
 		return PlaceDetails{}, err
 	}
-	if len(out.Results) == 0 {
-		return PlaceDetails{}, fmt.Errorf("no places found")
+	if len(out.Places) == 0 {
+		return PlaceDetails{}, fmt.Errorf("no place found near %f,%f", lat, lon)
 	}
-	r := out.Results[0]
-	d := PlaceDetails{}
-	if r.Rating != nil {
-		switch v := r.Rating.(type) {
-		case float64:
-			d.Rating = v
-		case string:
-			// parse string
-		}
-	}
-	if len(r.Photos) > 0 {
-		// Build photo URL
-		d.ImageURL = fmt.Sprintf("https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=%s&key=%s", r.Photos[0].PhotoReference, key)
+
+	p := out.Places[0]
+	d := PlaceDetails{Rating: p.Rating}
+	if len(p.Photos) > 0 && p.Photos[0].Name != "" {
+		d.ImageURL = fmt.Sprintf(
+			"https://places.googleapis.com/v1/%s/media?maxWidthPx=%d&key=%s",
+			p.Photos[0].Name, photoMaxPx, key,
+		)
 	}
 	return d, nil
 }

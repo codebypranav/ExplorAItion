@@ -47,9 +47,14 @@ func SeedIndex(ctx context.Context, idxConn *pineconeio.IndexConnection) error {
 				log.Printf("failed to convert metadata for %s: %v", t.Id, err)
 				continue
 			}
+			// The index is sparse, so the vector carries SparseValues and no
+			// dense Values.
 			v := &pineconeio.Vector{
-				Id:       t.Id,
-				Values:   &t.Vector,
+				Id: t.Id,
+				SparseValues: &pineconeio.SparseValues{
+					Indices: t.Vector.Indices,
+					Values:  t.Vector.Values,
+				},
 				Metadata: metaStruct,
 			}
 			batchVectors = append(batchVectors, v)

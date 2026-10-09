@@ -27,3 +27,9 @@ go.work.sum
 # Backend binaries
 /exploraition
 /exploraition_new
+
+# Dev server logs written by start-dev.sh
+*.log
+
+# Local Claude Code tooling: launch config and scratch worktrees
+.claude/

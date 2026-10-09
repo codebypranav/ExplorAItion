@@ -1,5 +1,4 @@
 node_modules/
 .next/
-# typescript incremental build info
 *.tsbuildinfo
 .env*.local

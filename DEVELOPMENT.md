@@ -30,8 +30,8 @@ Or press `Ctrl+C` while `start-dev.sh` is running.
 ## Manual Setup (if preferred)
 
 ### Prerequisites
-- Go 1.16+ installed
-- Node.js 16+ and npm installed
+- Go 1.26+ installed
+- Node.js 20+ and npm installed
 - `.env` file in the project root with required API keys
 
 ### Required Environment Variables
@@ -47,10 +47,10 @@ SEED_INDEX=false
 ### Terminal 1 - Start Backend
 ```bash
 export PATH=/usr/local/bin:$PATH
-./exploraition_new
+./exploraition
 # or rebuild from source:
-# go build -o exploraition_new main.go
-# ./exploraition_new
+# go build -o exploraition main.go
+# ./exploraition
 ```
 
 Expected output: `listening on :8080...`
@@ -180,7 +180,7 @@ If a port is already in use, you can:
 ```bash
 export PATH=/usr/local/bin:$PATH
 go clean -cache
-go build -o exploraition_new main.go
+go build -o exploraition main.go
 ```
 
 ---
@@ -193,8 +193,8 @@ The frontend uses Next.js with Hot Module Replacement (HMR), so changes to React
 ### Backend Development
 After modifying Go code, rebuild the binary:
 ```bash
-go build -o exploraition_new main.go
-./exploraition_new
+go build -o exploraition main.go
+./exploraition
 ```
 
 ### Testing API Endpoints
@@ -248,7 +248,7 @@ curl -X POST http://localhost:8080/itinerary \
 |---------|---------|
 | `./start-dev.sh` | Start both servers |
 | `./stop-dev.sh` | Stop both servers |
-| `go build -o exploraition_new main.go` | Rebuild backend |
+| `go build -o exploraition main.go` | Rebuild backend |
 | `npm install --prefix frontend` | Install frontend deps |
 | `npm run dev --prefix frontend` | Start frontend only |
 | `npm run build --prefix frontend` | Build frontend for production |

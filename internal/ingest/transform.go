@@ -65,7 +65,12 @@ func TransformAll(ctx context.Context, pois []POI) ([]TransformedPOI, error) {
 			m["description"] = p.Description
 		}
 		if len(p.Tags) > 0 {
-			m["tags"] = p.Tags
+			// structpb cannot convert []string, so hand it []interface{}.
+			tags := make([]interface{}, 0, len(p.Tags))
+			for _, t := range p.Tags {
+				tags = append(tags, t)
+			}
+			m["tags"] = tags
 		}
 		if p.Image != "" {
 			m["image"] = p.Image

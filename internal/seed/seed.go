@@ -2,7 +2,6 @@ package seed
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -12,7 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// SeedIndex fetches places from OpenTripMap, generates sparse embeddings using Pinecone, and upserts into the index.
+// SeedIndex fetches places from OpenStreetMap, generates sparse embeddings using Pinecone, and upserts into the index.
 func SeedIndex(ctx context.Context, idxConn *pineconeio.IndexConnection) error {
 	// List of cities to fetch data for -- extendable or configurable via env
 	var cities []string
@@ -25,10 +24,6 @@ func SeedIndex(ctx context.Context, idxConn *pineconeio.IndexConnection) error {
 		cities = []string{"Paris", "New York", "Tokyo", "San Francisco", "Sydney"}
 	}
 	batchVectors := []*pineconeio.Vector{}
-	apiKey := os.Getenv("OPEN_TRIP_MAP_KEY")
-	if apiKey == "" {
-		return fmt.Errorf("OPEN_TRIP_MAP_KEY not set; cannot seed index")
-	}
 
 	for _, city := range cities {
 		pois, err := ingest.FetchPOIsForCity(ctx, city, 20000, 200)

@@ -18,7 +18,10 @@ type Place struct {
 	ImageURL    string  `json:"image_url"`
 	Description string  `json:"description"`
 	Country     string  `json:"country"`
-	Rating      float64 `json:"rating"`
+	// Rating is a 0-5 star rating when one is known. The index's own `rate`
+	// metadata is a 1-7 notability score, not a star rating, so it is
+	// deliberately not surfaced here — clients render this as stars.
+	Rating float64 `json:"rating"`
 }
 
 // Haversine distance
@@ -109,10 +112,6 @@ func GenerateItinerary(ctx context.Context, idxConn *pineconeio.IndexConnection,
 		if v, ok := mm["country"].(string); ok {
 			country = v
 		}
-		rating := 0.0
-		if v, ok := mm["rate"].(float64); ok {
-			rating = v
-		}
 		places = append(places, Place{
 			Name:        name,
 			Latitude:    lat,
@@ -122,7 +121,6 @@ func GenerateItinerary(ctx context.Context, idxConn *pineconeio.IndexConnection,
 			ImageURL:    image,
 			Description: desc,
 			Country:     country,
-			Rating:      rating,
 		})
 	}
 	// Sort by score descending

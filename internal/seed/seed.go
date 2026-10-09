@@ -16,9 +16,16 @@ func SeedIndex(ctx context.Context, idxConn *pineconeio.IndexConnection) error {
 	// List of cities to fetch data for -- extendable or configurable via env
 	var cities []string
 	if v := os.Getenv("SEED_CITIES"); v != "" {
-		// comma separated list
-		for _, c := range strings.Split(v, ",") {
-			cities = append(cities, strings.TrimSpace(c))
+		// Semicolon separated, so that entries can disambiguate with a comma
+		// ("Leavenworth, WA"). Falls back to commas when none is present.
+		sep := ","
+		if strings.Contains(v, ";") {
+			sep = ";"
+		}
+		for _, c := range strings.Split(v, sep) {
+			if c = strings.TrimSpace(c); c != "" {
+				cities = append(cities, c)
+			}
 		}
 	} else {
 		cities = []string{"Paris", "New York", "Tokyo", "San Francisco", "Sydney"}

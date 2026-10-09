@@ -71,9 +71,11 @@ func haversineKm(aLat, aLon, bLat, bLon float64) float64 {
 // when Google had nothing nearby, which is cached too so that a miss does not
 // cost a billed lookup on every later search.
 type placeEnrichment struct {
-	rating   float64
-	imageURL string
-	found    bool
+	rating float64
+	// photoName is Google's photo resource name. The displayable URL is
+	// resolved separately, because it expires sooner than this entry does.
+	photoName string
+	found     bool
 }
 
 var (
@@ -90,7 +92,45 @@ var (
 	// Weather changes quickly and is shared by everything nearby, so it is
 	// keyed by coarse coordinates rather than by place.
 	weatherCache = cache.New[wthr.CurrentWeather](15*time.Minute, 20000)
+
+	// Signed photo URLs are perishable and Google does not document their
+	// lifetime, so they are cached well inside any plausible expiry and
+	// re-resolved from the long-lived photo name afterwards. A URL that does
+	// go stale degrades to the card's placeholder rather than a broken image.
+	photoCache = cache.New[string](photoURITTL(), 50000)
 )
+
+const defaultPhotoURITTL = 6 * time.Hour
+
+func photoURITTL() time.Duration {
+	if v := os.Getenv("PHOTO_URI_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+		log.Printf("ignoring invalid PHOTO_URI_TTL %q", v)
+	}
+	return defaultPhotoURITTL
+}
+
+// photoURL resolves a photo resource name to a URL the browser can load
+// directly. The returned URL carries no API key.
+func photoURL(ctx context.Context, photoName string) string {
+	if photoName == "" {
+		return ""
+	}
+	if hit, ok := photoCache.Get(photoName); ok {
+		return hit
+	}
+	uri, err := gp.ResolvePhotoURI(ctx, photoName)
+	if err != nil {
+		// Cache the failure briefly by storing an empty string, so one bad
+		// photo does not retry on every search.
+		photoCache.Set(photoName, "")
+		return ""
+	}
+	photoCache.Set(photoName, uri)
+	return uri
+}
 
 const (
 	defaultPlaceTTL = 7 * 24 * time.Hour
@@ -134,7 +174,7 @@ func lookupPlace(ctx context.Context, xid string, lat, lon float64) placeEnrichm
 		placeCache.Set(xid, miss)
 		return miss
 	}
-	found := placeEnrichment{rating: res.Rating, imageURL: res.ImageURL, found: true}
+	found := placeEnrichment{rating: res.Rating, photoName: res.PhotoName, found: true}
 	placeCache.Set(xid, found)
 	return found
 }
@@ -300,8 +340,8 @@ func main() {
 						if e.rating != 0 {
 							o.Rating = e.rating
 						}
-						if o.ImageURL == "" && e.imageURL != "" {
-							o.ImageURL = e.imageURL
+						if o.ImageURL == "" && e.photoName != "" {
+							o.ImageURL = photoURL(ctx, e.photoName)
 						}
 					}
 				}

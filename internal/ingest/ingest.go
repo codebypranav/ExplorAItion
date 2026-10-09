@@ -32,6 +32,8 @@ const (
 	userAgent = "ExplorAItion/1.0 (https://github.com/codebypranav/ExplorAItion)"
 	// Pause between successive Wikipedia batches, to stay a polite client.
 	wikiPause = 300 * time.Millisecond
+	// Times to walk the whole Overpass mirror list before falling back.
+	overpassPasses = 3
 )
 
 // Public Overpass instances, tried in order. Set OVERPASS_URL to override the
@@ -91,6 +93,22 @@ func httpPostForm(ctx context.Context, endpoint string, form url.Values) ([]byte
 	return do(req)
 }
 
+// retryableStatus reports whether a status is worth another attempt. Public
+// Overpass instances return transient 500s under load — in sampling, two
+// mirrors each succeeded on roughly a third of identical requests — so a bare
+// 500 is not treated as fatal here.
+func retryableStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 func do(req *http.Request) ([]byte, error) {
 	// Overpass queries over a wide radius routinely take tens of seconds.
 	client := &http.Client{
@@ -117,6 +135,13 @@ func do(req *http.Request) ([]byte, error) {
 			case <-time.After(wait):
 			}
 		}
+		if req.GetBody != nil && attempt > 0 {
+			body, err := req.GetBody()
+			if err != nil {
+				return nil, err
+			}
+			req.Body = body
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, err
@@ -128,7 +153,7 @@ func do(req *http.Request) ([]byte, error) {
 			continue
 		}
 		switch {
-		case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable:
+		case retryableStatus(resp.StatusCode):
 			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 			continue
 		case resp.StatusCode >= 300:
@@ -140,8 +165,17 @@ func do(req *http.Request) ([]byte, error) {
 }
 
 // LookupCity resolves a place name to coordinates and a country code.
+//
+// The geocoder ranks by population, so a bare name lands on the biggest
+// match — "Leavenworth" is Leavenworth, Kansas, not the Washington town a
+// tenth its size. Accept "City, Region" ("Leavenworth, WA") and prefer the
+// candidate whose state or country matches.
 func LookupCity(ctx context.Context, city string) (City, error) {
-	u := fmt.Sprintf("%s?name=%s&count=1&language=en&format=json", geocodeURL, url.QueryEscape(city))
+	name, region, _ := strings.Cut(city, ",")
+	name = strings.TrimSpace(name)
+	region = strings.TrimSpace(region)
+
+	u := fmt.Sprintf("%s?name=%s&count=10&language=en&format=json", geocodeURL, url.QueryEscape(name))
 	b, err := httpGet(ctx, u)
 	if err != nil {
 		return City{}, err
@@ -152,6 +186,8 @@ func LookupCity(ctx context.Context, city string) (City, error) {
 			Latitude    float64 `json:"latitude"`
 			Longitude   float64 `json:"longitude"`
 			CountryCode string  `json:"country_code"`
+			Country     string  `json:"country"`
+			Admin1      string  `json:"admin1"`
 		} `json:"results"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
@@ -160,13 +196,41 @@ func LookupCity(ctx context.Context, city string) (City, error) {
 	if len(out.Results) == 0 {
 		return City{}, fmt.Errorf("no match for city %q", city)
 	}
-	r := out.Results[0]
+
+	// Results are population-ordered, so the first is the default.
+	pick := out.Results[0]
+	if region != "" {
+		matched := false
+		for _, r := range out.Results {
+			if regionMatches(region, r.Admin1) || regionMatches(region, r.Country) ||
+				strings.EqualFold(region, r.CountryCode) {
+				pick = r
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return City{}, fmt.Errorf("no match for %q in %q", name, region)
+		}
+	}
 	return City{
-		Name:        r.Name,
-		Lat:         r.Latitude,
-		Lon:         r.Longitude,
-		CountryCode: strings.ToUpper(r.CountryCode),
+		Name:        pick.Name,
+		Lat:         pick.Latitude,
+		Lon:         pick.Longitude,
+		CountryCode: strings.ToUpper(pick.CountryCode),
 	}, nil
+}
+
+// regionMatches accepts both the full name and the usual abbreviation, since
+// a prefix covers "WA" for Washington and "OR" for Oregon.
+func regionMatches(want, have string) bool {
+	if have == "" {
+		return false
+	}
+	if strings.EqualFold(want, have) {
+		return true
+	}
+	return len(want) >= 2 && strings.HasPrefix(strings.ToLower(have), strings.ToLower(want))
 }
 
 // GetCityCoords finds the latitude/longitude for a city name.
@@ -211,6 +275,9 @@ func SearchPOIs(ctx context.Context, lat, lon float64, radiusMeters int, limit i
   nwr["historic"~"^(castle|monument|memorial|ruins|archaeological_site|church|fort|city_gate|building)$"]["name"]%[1]s;
   nwr["leisure"~"^(park|garden|nature_reserve)$"]["name"]%[1]s;
   nwr["amenity"~"^(theatre|place_of_worship|marketplace)$"]["name"]%[1]s;
+  nwr["natural"~"^(peak|volcano|waterfall|hot_spring|glacier|beach|bay|cliff|cave_entrance)$"]["name"]%[1]s;
+  nwr["tourism"~"^(camp_site|caravan_site|chalet|wilderness_hut|alpine_hut|picnic_site)$"]["name"]%[1]s;
+  nwr["amenity"="cafe"]["name"]%[1]s;
 );
 out center %[2]d;`, area, fetch)
 
@@ -223,18 +290,23 @@ out center %[2]d;`, area, fetch)
 		lastErr error
 		ok      bool
 	)
-	for _, endpoint := range overpassEndpoints() {
-		b, err := httpPostForm(ctx, endpoint, url.Values{"data": {query}})
-		if err != nil {
-			lastErr = fmt.Errorf("%s: %w", endpoint, err)
-			continue
+	// Sampling two public mirrors, identical requests succeeded only about a
+	// third of the time, so walk the list more than once before giving up.
+	endpoints := overpassEndpoints()
+	for pass := 0; pass < overpassPasses && !ok; pass++ {
+		for _, endpoint := range endpoints {
+			b, err := httpPostForm(ctx, endpoint, url.Values{"data": {query}})
+			if err != nil {
+				lastErr = fmt.Errorf("%s: %w", endpoint, err)
+				continue
+			}
+			if err := json.Unmarshal(b, &out); err != nil {
+				lastErr = fmt.Errorf("%s: %w", endpoint, err)
+				continue
+			}
+			ok = true
+			break
 		}
-		if err := json.Unmarshal(b, &out); err != nil {
-			lastErr = fmt.Errorf("%s: %w", endpoint, err)
-			continue
-		}
-		ok = true
-		break
 	}
 	if !ok {
 		return nil, fmt.Errorf("all Overpass endpoints failed, last error: %w", lastErr)
@@ -245,10 +317,61 @@ out center %[2]d;`, area, fetch)
 	sort.SliceStable(out.Elements, func(i, j int) bool {
 		return scoreTags(out.Elements[i].Tags) > scoreTags(out.Elements[j].Tags)
 	})
-	if len(out.Elements) > limit {
-		out.Elements = out.Elements[:limit]
+	return pickBalanced(out.Elements, limit), nil
+}
+
+// categoryOf groups an element into one of the broad things a traveller plans
+// around, so that selection can keep a mix of them.
+func categoryOf(tags map[string]string) string {
+	if tags["amenity"] == "cafe" {
+		return "cafe"
 	}
-	return out.Elements, nil
+	switch tags["tourism"] {
+	case "camp_site", "caravan_site", "chalet", "wilderness_hut", "alpine_hut":
+		return "stay"
+	}
+	if tags["natural"] != "" || tags["leisure"] != "" || tags["tourism"] == "viewpoint" {
+		return "outdoors"
+	}
+	return "culture"
+}
+
+// pickBalanced takes the best of each category in turn, rather than the best
+// overall. Landmarks with Wikipedia articles outscore every cafe and campsite,
+// so a straight ranking would drop whole categories from the index.
+func pickBalanced(elements []overpassElement, limit int) []overpassElement {
+	if len(elements) <= limit {
+		return elements
+	}
+	buckets := map[string][]overpassElement{}
+	order := []string{}
+	for _, el := range elements {
+		c := categoryOf(el.Tags)
+		if _, seen := buckets[c]; !seen {
+			order = append(order, c)
+		}
+		buckets[c] = append(buckets[c], el)
+	}
+
+	picked := make([]overpassElement, 0, limit)
+	for len(picked) < limit {
+		progressed := false
+		for _, c := range order {
+			if len(buckets[c]) == 0 {
+				continue
+			}
+			picked = append(picked, buckets[c][0])
+			buckets[c] = buckets[c][1:]
+			progressed = true
+			if len(picked) == limit {
+				return picked
+			}
+		}
+		if !progressed {
+			break
+		}
+	}
+	return picked
 }
 
 // scoreTags approximates OpenTripMap's 1-7 "rate": how notable a place looks
@@ -264,7 +387,18 @@ func scoreTags(tags map[string]string) float64 {
 	switch tags["tourism"] {
 	case "museum", "gallery", "attraction", "zoo", "aquarium", "theme_park":
 		score += 2
-	case "viewpoint", "artwork":
+	case "camp_site", "caravan_site", "chalet", "wilderness_hut", "alpine_hut":
+		score += 2
+	case "viewpoint", "artwork", "picnic_site":
+		score += 1
+	}
+	switch tags["natural"] {
+	case "peak", "volcano", "waterfall", "hot_spring", "glacier":
+		score += 2
+	case "beach", "bay", "cliff", "cave_entrance":
+		score += 1
+	}
+	if tags["amenity"] == "cafe" {
 		score += 1
 	}
 	if tags["historic"] != "" {
@@ -282,7 +416,7 @@ func scoreTags(tags map[string]string) float64 {
 // kindsOf builds an OpenTripMap-style comma separated category string.
 func kindsOf(tags map[string]string) string {
 	kinds := make([]string, 0, 4)
-	for _, key := range []string{"tourism", "historic", "leisure", "amenity"} {
+	for _, key := range []string{"tourism", "historic", "leisure", "amenity", "natural"} {
 		if v := tags[key]; v != "" {
 			kinds = append(kinds, v)
 		}

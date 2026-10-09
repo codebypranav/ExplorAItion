@@ -11,7 +11,7 @@ import (
 // TransformedPOI couples a POI with the text we will embed and metadata for Pinecone
 type TransformedPOI struct {
 	Id       string
-	Vector   []float32
+	Vector   embeddings.SparseEmbedding
 	Metadata map[string]interface{}
 }
 
@@ -32,12 +32,26 @@ func BuildTextForEmbedding(p POI) string {
 
 // TransformAll converts a slice of POI to TransformedPOI by generating sparse embeddings using Pinecone
 func TransformAll(ctx context.Context, pois []POI) ([]TransformedPOI, error) {
-	out := make([]TransformedPOI, 0, len(pois))
+	// Embed every POI in as few requests as the batch limit allows, rather than
+	// one HTTP call per place.
+	texts := make([]string, 0, len(pois))
 	for _, p := range pois {
-		text := BuildTextForEmbedding(p)
-		vec, err := embeddings.GenerateEmbedding(ctx, text)
-		if err != nil {
-			return nil, err
+		texts = append(texts, BuildTextForEmbedding(p))
+	}
+	vectors, err := embeddings.GenerateEmbeddings(ctx, texts, embeddings.InputPassage)
+	if err != nil {
+		return nil, err
+	}
+	if len(vectors) != len(pois) {
+		return nil, fmt.Errorf("embedding count mismatch: got %d vectors for %d places", len(vectors), len(pois))
+	}
+
+	out := make([]TransformedPOI, 0, len(pois))
+	for i, p := range pois {
+		vec := vectors[i]
+		// A vector with no non-zero dimensions cannot be upserted or matched.
+		if vec.Empty() {
+			continue
 		}
 		m := map[string]interface{}{
 			"name":    p.Name,
@@ -51,7 +65,12 @@ func TransformAll(ctx context.Context, pois []POI) ([]TransformedPOI, error) {
 			m["description"] = p.Description
 		}
 		if len(p.Tags) > 0 {
-			m["tags"] = p.Tags
+			// structpb cannot convert []string, so hand it []interface{}.
+			tags := make([]interface{}, 0, len(p.Tags))
+			for _, t := range p.Tags {
+				tags = append(tags, t)
+			}
+			m["tags"] = tags
 		}
 		if p.Image != "" {
 			m["image"] = p.Image

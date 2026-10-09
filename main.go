@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"math"
 	"os"
 	"strings"
 
@@ -25,6 +26,41 @@ func loadEnv() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found; using system environment variables")
 	}
+}
+
+// itineraryRadiusKm bounds how far a stop may sit from the city centre.
+const itineraryRadiusKm = 40.0
+
+// nearbyMatches keeps only the matches within radiusKm of the given point.
+// Matches without usable coordinates are dropped, since they cannot be routed.
+func nearbyMatches(matches []*pineconeio.ScoredVector, lat, lon, radiusKm float64) []*pineconeio.ScoredVector {
+	out := make([]*pineconeio.ScoredVector, 0, len(matches))
+	for _, m := range matches {
+		if m.Vector == nil || m.Vector.Metadata == nil {
+			continue
+		}
+		mm := m.Vector.Metadata.AsMap()
+		mLat, okLat := mm["lat"].(float64)
+		mLon, okLon := mm["lon"].(float64)
+		if !okLat || !okLon || (mLat == 0 && mLon == 0) {
+			continue
+		}
+		if haversineKm(lat, lon, mLat, mLon) <= radiusKm {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// haversineKm is the great-circle distance between two points, in kilometres.
+func haversineKm(aLat, aLon, bLat, bLon float64) float64 {
+	const earthRadiusKm = 6371.0
+	rad := func(d float64) float64 { return d * math.Pi / 180 }
+	dLat := rad(bLat - aLat)
+	dLon := rad(bLon - aLon)
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(rad(aLat))*math.Cos(rad(bLat))*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * earthRadiusKm * math.Asin(math.Min(1, math.Sqrt(h)))
 }
 
 func main() {
@@ -82,8 +118,12 @@ func main() {
 			log.Printf("embedding error: %v", err)
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate embedding"})
 		}
+		if emb.Empty() {
+			// Nothing in the query matched the model's vocabulary.
+			return c.JSON([]fiber.Map{})
+		}
 		req := &pineconeio.QueryByVectorValuesRequest{
-			Vector:          emb,
+			SparseValues:    &pineconeio.SparseValues{Indices: emb.Indices, Values: emb.Values},
 			TopK:            uint32(body.TopK),
 			IncludeMetadata: true,
 		}
@@ -223,15 +263,32 @@ func main() {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "embedding failed"})
 		}
 		// query pinecone
-		req := &pineconeio.QueryByVectorValuesRequest{Vector: emb, TopK: uint32(body.Days * 8), IncludeMetadata: true}
+		if emb.Empty() {
+			return c.JSON(make([][]itin.Place, body.Days))
+		}
+		// Ask for well beyond what the plan needs: the index spans many cities,
+		// and everything outside this one is discarded below.
+		topK := body.Days * 40
+		if topK > 1000 {
+			topK = 1000
+		}
+		req := &pineconeio.QueryByVectorValuesRequest{
+			SparseValues:    &pineconeio.SparseValues{Indices: emb.Indices, Values: emb.Values},
+			TopK:            uint32(topK),
+			IncludeMetadata: true,
+		}
 		res, err := idxConn.QueryByVectorValues(ctx, req)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "pinecone query failed"})
 		}
-		if len(res.Matches) == 0 {
+		// The semantic query knows nothing about geography, so a search for
+		// "churches" in Rome happily matches churches in Paris. Keep only what
+		// is actually near the requested city.
+		local := nearbyMatches(res.Matches, lat, lon, itineraryRadiusKm)
+		if len(local) == 0 {
 			return c.JSON(make([][]itin.Place, body.Days))
 		}
-		itinerary, err := itin.GenerateItinerary(ctx, idxConn, lat, lon, res.Matches, body.Days)
+		itinerary, err := itin.GenerateItinerary(ctx, idxConn, lat, lon, local, body.Days)
 		if err != nil {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to build itinerary"})
 		}

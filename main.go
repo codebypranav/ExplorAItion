@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math"
 	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"sort"
 
+	"github.com/codebypranav/exploraition/internal/cache"
 	"github.com/codebypranav/exploraition/internal/embeddings"
 	gp "github.com/codebypranav/exploraition/internal/googleplaces"
 	ingest "github.com/codebypranav/exploraition/internal/ingest"
@@ -61,6 +65,91 @@ func haversineKm(aLat, aLon, bLat, bLon float64) float64 {
 	h := math.Sin(dLat/2)*math.Sin(dLat/2) +
 		math.Cos(rad(aLat))*math.Cos(rad(bLat))*math.Sin(dLon/2)*math.Sin(dLon/2)
 	return 2 * earthRadiusKm * math.Asin(math.Min(1, math.Sqrt(h)))
+}
+
+// placeEnrichment is what Google Places told us about one POI. found is false
+// when Google had nothing nearby, which is cached too so that a miss does not
+// cost a billed lookup on every later search.
+type placeEnrichment struct {
+	rating   float64
+	imageURL string
+	found    bool
+}
+
+var (
+	// Keyed by xid: one POI maps to exactly one Google place, and unlike
+	// lat/lon it is a stable, exact key.
+	//
+	// Google's Maps Platform terms allow Places content to be cached only
+	// temporarily (30 days at the time of writing; Place IDs are exempt and
+	// may be stored indefinitely). PLACE_CACHE_TTL must stay inside that
+	// limit, which is also why ratings are not written back into the index
+	// as permanent metadata.
+	placeCache = cache.New[placeEnrichment](placeCacheTTL(), 50000)
+
+	// Weather changes quickly and is shared by everything nearby, so it is
+	// keyed by coarse coordinates rather than by place.
+	weatherCache = cache.New[wthr.CurrentWeather](15*time.Minute, 20000)
+)
+
+const (
+	defaultPlaceTTL = 7 * 24 * time.Hour
+	// Parallel enrichment lookups in flight at once.
+	enrichConcurrency = 8
+)
+
+func placeCacheTTL() time.Duration {
+	if v := os.Getenv("PLACE_CACHE_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			if d > 30*24*time.Hour {
+				log.Printf("PLACE_CACHE_TTL %s exceeds the 30 day limit for cached Places content; using 30 days", d)
+				return 30 * 24 * time.Hour
+			}
+			return d
+		}
+		log.Printf("ignoring invalid PLACE_CACHE_TTL %q", v)
+	}
+	return defaultPlaceTTL
+}
+
+// weatherKey buckets coordinates to ~1km so neighbouring POIs share a reading.
+func weatherKey(lat, lon float64) string {
+	return fmt.Sprintf("%.2f,%.2f", lat, lon)
+}
+
+// lookupPlace returns Google enrichment for one POI, calling the API only on a
+// cache miss.
+func lookupPlace(ctx context.Context, xid string, lat, lon float64) placeEnrichment {
+	if xid == "" {
+		// Without a stable key there is nothing to cache against.
+		xid = weatherKey(lat, lon)
+	}
+	if hit, ok := placeCache.Get(xid); ok {
+		return hit
+	}
+	res, err := gp.GetNearestPlaceDetails(ctx, lat, lon)
+	if err != nil {
+		// Cache the miss as well, so repeat searches stay free.
+		miss := placeEnrichment{}
+		placeCache.Set(xid, miss)
+		return miss
+	}
+	found := placeEnrichment{rating: res.Rating, imageURL: res.ImageURL, found: true}
+	placeCache.Set(xid, found)
+	return found
+}
+
+func lookupWeather(ctx context.Context, lat, lon float64) (wthr.CurrentWeather, bool) {
+	key := weatherKey(lat, lon)
+	if hit, ok := weatherCache.Get(key); ok {
+		return hit, true
+	}
+	w, err := wthr.GetCurrentWeather(ctx, lat, lon)
+	if err != nil {
+		return wthr.CurrentWeather{}, false
+	}
+	weatherCache.Set(key, w)
+	return w, true
 }
 
 func main() {
@@ -188,24 +277,43 @@ func main() {
 					}
 				}
 			}
-			// Enrich with Google Places / rating
-			if out.Latitude != 0 && out.Longitude != 0 {
-				if os.Getenv("GOOGLE_PLACES_API_KEY") != "" {
-					if gpRes, err := gp.GetNearestPlaceDetails(ctx, out.Latitude, out.Longitude); err == nil {
-						if gpRes.Rating != 0 {
-							out.Rating = gpRes.Rating
+			outs = append(outs, out)
+		}
+
+		// Enrich in parallel: each result previously cost two sequential HTTP
+		// round trips, so a top_k of 50 meant 100 of them back to back.
+		hasPlacesKey := os.Getenv("GOOGLE_PLACES_API_KEY") != ""
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, enrichConcurrency)
+		for i := range outs {
+			if outs[i].Latitude == 0 && outs[i].Longitude == 0 {
+				continue
+			}
+			wg.Add(1)
+			go func(o *Out) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				if hasPlacesKey {
+					if e := lookupPlace(ctx, o.Xid, o.Latitude, o.Longitude); e.found {
+						if e.rating != 0 {
+							o.Rating = e.rating
 						}
-						if out.ImageURL == "" && gpRes.ImageURL != "" {
-							out.ImageURL = gpRes.ImageURL
+						if o.ImageURL == "" && e.imageURL != "" {
+							o.ImageURL = e.imageURL
 						}
 					}
 				}
-				// Get weather
-				if w, err := wthr.GetCurrentWeather(ctx, out.Latitude, out.Longitude); err == nil {
-					out.Weather = &WeatherInfo{Temperature: w.Temperature, WindSpeed: w.WindSpeed, Code: w.WeatherCode}
+				if w, ok := lookupWeather(ctx, o.Latitude, o.Longitude); ok {
+					o.Weather = &WeatherInfo{Temperature: w.Temperature, WindSpeed: w.WindSpeed, Code: w.WeatherCode}
 				}
-			}
-			outs = append(outs, out)
+			}(&outs[i])
+		}
+		wg.Wait()
+
+		if hits, misses := placeCache.Stats(); hits+misses > 0 {
+			log.Printf("places cache: %d hits, %d misses (billed lookups)", hits, misses)
 		}
 		// Re-rank by combining pinecone semantic score + rating (if available)
 		type scoredOut struct {
